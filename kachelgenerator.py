@@ -3,9 +3,11 @@
 # Skript zum generieren von DeepZoomImages
 # Stand: 07.11.2016, Alexander Harm
 
-# Ordner, die die zu konvertierenden Digitalisate enthalten (Angabe als Tuple!)
-ordnernamen = ('max', 'dpi300-jpg')
-dateiendungen = ('.jpg', '.jpeg')
+# Ordner, die die zu konvertierenden Digitalisate enthalten
+# Angabe als Tuple z. B. ('org',) oder ('org', 'max') 
+# Angabe in absteigender Priorität
+ordnernamen = ('dpi300-tif', 'max', 'dpi300-jpg')
+dateiendungen = ('.tif', '.jpg', '.jpeg')
 
 ###############################################################################
 
@@ -129,7 +131,7 @@ def generate_tile(task):
       # img.dzsave(output_dir, layout='zoomify', suffix='.jpg[Q=100]')
       img.dzsave(fileout)
     except Vips.Error, e:
-      logger.error('Fehler bei der Kachelgenerierung für ' + filein + ': ' + e.detail)
+      logger.error('Fehler bei der Kachelgenerierung für ' + filein + ': ' + str(e.detail))
       filelist.remove(filename)
       bm_errors += 1
     else:
@@ -140,7 +142,7 @@ def generate_tile(task):
     try:
       result = subprocess.check_output(['vips', 'dzsave', filein, fileout], stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError, e:
-      logger.error('Fehler bei der Kachelgenerierung für ' + filein + ': ' + e.output)
+      logger.error('Fehler bei der Kachelgenerierung für ' + filein + ': ' + str(e.output))
       filelist.remove(filename)
       bm_errors += 1
     else:
@@ -184,7 +186,7 @@ for path in args.paths:
           try:
             shutil.rmtree(tilesfolder, ignore_errors=True)
           except OSError, e:
-            logger.error('Fehler beim Löschen: ' + e.args)
+            logger.error('Fehler beim Löschen: ' + str(e.args))
           except:
             raise
 
@@ -194,7 +196,7 @@ for path in args.paths:
         except OSError, e:
           # Für alle Fehler, außer dass der Ordner existiert, zum nächsten Ordner gehen
           if not e.errno == errno.EEXIST:
-            logger.error('Fehler beim Erstellen ' + e.args)
+            logger.error('Fehler beim Erstellen ' + str(e.args))
             continue
         except:
           raise
@@ -232,6 +234,9 @@ for path in args.paths:
             with open(os.path.join(tilesfolder[:tilesfolder.rindex('tiles')], 'tiles', '.nsr'), 'w') as networkerfile:
               networkerfile.write('+skip: *')
               logger.info('Networker Direktive erstellt: ' + os.path.join(tilesfolder[:tilesfolder.rindex('tiles')], 'tiles', '.nsr'))
+              
+		# Verlassen des Loops nach dem ersten Treffer
+		break
 
 ###############################################################################
 
