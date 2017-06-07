@@ -233,4 +233,4 @@ for path in args.paths:
 ###############################################################################
 
 # Stats ausgeben
-print '{} Sekunden'.format(time() - bm_time), 'für', bm_files, 'Dateien mit', bm_errors, 'Fehlern.'
+print '{} Sekunden für {} Dateien mit {} Fehlern.'.format(time() - bm_time, bm_files, bm_errors)
