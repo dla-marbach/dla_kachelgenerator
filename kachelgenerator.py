@@ -1,13 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Skript zum generieren von DeepZoomImages
-# Stand: 07.11.2016, Alexander Harm
+# Stand: 07.07.2017
 
-# Ordner, die die zu konvertierenden Digitalisate enthalten
-# Angabe als Tuple z. B. ('org',) oder ('org', 'max') 
-# Angabe in absteigender Priorität
-ordnernamen = ('dpi300-tif', 'max', 'dpi300-jpg')
-dateiendungen = ('.tif', '.jpg', '.jpeg')
+# Mögliche Dateiendungen der zu konvertierenden Dateien
+dateiendungen = ('.tiff', '.tif', '.jpg', '.jpeg')
 
 ###############################################################################
 
@@ -20,8 +17,8 @@ from multiprocessing import Pool
 
 # Parsen der Programmparameter
 parser = argparse.ArgumentParser(description='DeepZoomImages-Generator')
-# Verschiedene Pfade in denen gesucht werden soll
-parser.add_argument('paths', nargs='*', default=[os.path.curdir], help='Pfade in denen nach Digitalisaten gesucht wird.')
+# Ordner, die die zu konvertierenden Dateien enthalten
+parser.add_argument('paths', nargs='*', default=[os.path.curdir], help='Pfade, die die Digitalisate enthalten.')
 # Logdatei erstellen
 parser.add_argument('-l', dest='logfile', action='store_true', default=False, help='Erstellt Logfile (kachelgenerator.log).')
 # Ausschluss vom Networker Backup
@@ -173,70 +170,65 @@ for path in args.paths:
   # Rekursives Durchsuchen der Pfade
   for rootpath, dirnames, filenames in os.walk(path):
 
-    # Prüfen ob der Pfad einen gesuchten Ordnernamen enthält, aber keine weiteren Unterordner
-    for ordnername in ordnernamen:
+    # Bestimmung des 'tiles'-Ordners im übergeordneten Ordner
+    tilesfolder = os.path.join(os.path.abspath(os.path.join(rootpath, os.pardir)), 'tiles')
 
-      if ordnername.lower() in rootpath.lower() and len(dirnames) == 0:
+    # Löschen des 'tiles'-Ordners und ggfls. Unterordner
+    if os.path.exists(tilesfolder):
+      try:
+        shutil.rmtree(tilesfolder, ignore_errors=True)
+      except OSError, e:
+        logger.error('Fehler beim Löschen: ' + str(e.args))
+      except:
+        raise
 
-        # Bestimmung des 'tiles'-Ordners
-        tilesfolder = rootpath.replace(ordnername, 'tiles')
+    # Erstellen des 'tiles'-Ordners und ggfls. Unterordner
+    try:
+      os.makedirs(tilesfolder)
+    except OSError, e:
+      # Für alle Fehler, außer dass der Ordner existiert, zum nächsten Ordner gehen
+      if not e.errno == errno.EEXIST:
+        logger.error('Fehler beim Erstellen ' + str(e.args))
+        continue
+    except:
+      raise
 
-        # Löschen des 'tiles'-Ordners und ggfls. Unterordner
-        if os.path.exists(tilesfolder):
-          try:
-            shutil.rmtree(tilesfolder, ignore_errors=True)
-          except OSError, e:
-            logger.error('Fehler beim Löschen: ' + str(e.args))
-          except:
-            raise
+    # Zurücksetzen der Listen
+    del filelist[:]
+    tasklist = []
+    
+    # Verarbeiten aller Dateien
+    for filename in filenames:
 
-        # Erstellen des 'tiles'-Ordners und ggfls. Unterordner
-        try:
-          os.makedirs(tilesfolder)
-        except OSError, e:
-          # Für alle Fehler, außer dass der Ordner existiert, zum nächsten Ordner gehen
-          if not e.errno == errno.EEXIST:
-            logger.error('Fehler beim Erstellen ' + str(e.args))
-            continue
-        except:
-          raise
+      # Beschränkung auf Dateiendungen
+      if filename.endswith(dateiendungen):
 
-        # Zurücksetzen der Listen
-        del filelist[:]
-        tasklist = []
-        
-        # Verarbeiten aller Dateien
-        for filename in filenames:
+        # Datei in Listen speichern
+        filelist.append(filename)
+        tasklist.append((filename, os.path.join(rootpath, filename), os.path.join(tilesfolder, filename[:filename.rindex('.')])))
+        bm_files += 1
 
-          # Beschränkung auf Dateiendungen
-          if filename.endswith(dateiendungen):
+    # Generieren von DeepZoomImages auslagern in Workers
+    p = Pool(args.worker)
+    p.map(generate_tile, tasklist)
 
-            # Datei in Listen speichern
-            filelist.append(filename)
-            tasklist.append((filename, os.path.join(rootpath, filename), os.path.join(tilesfolder, filename[:filename.rindex('.')])))
-            bm_files += 1
+    # Dateiendungen in .dzi ändern
+    for filename in filelist:
+      filename = filename[:filename.rindex('.')] + '.dzi'
 
-        # Generieren von DeepZoomImages auslagern in Workers
-        p = Pool(args.worker)
-        p.map(generate_tile, tasklist)
+    # Speichern der Dateiliste in einer JSON-Datei
+    with open(os.path.join(tilesfolder, filename[:filename.rindex('_')] + '.json'), 'w') as jsonfile:
+      json.dump({'files': filelist}, jsonfile)
 
-        # Dateiendungen in .dzi ändern
-        for filename in filelist:
-          filename = filename[:filename.rindex('.')] + '.dzi'
-
-        # Speichern der Dateiliste in einer JSON-Datei
-        with open(os.path.join(tilesfolder, filename[:filename.rindex('_')] + '.json'), 'w') as jsonfile:
-          json.dump({'files': filelist}, jsonfile)
-
-        # Erstellen der Networker Direktive
-        if args.networker:
-          if not os.path.exists(os.path.join(tilesfolder[:tilesfolder.rindex('tiles')], 'tiles', '.nsr')):
-            with open(os.path.join(tilesfolder[:tilesfolder.rindex('tiles')], 'tiles', '.nsr'), 'w') as networkerfile:
-              networkerfile.write('+skip: *')
-              logger.info('Networker Direktive erstellt: ' + os.path.join(tilesfolder[:tilesfolder.rindex('tiles')], 'tiles', '.nsr'))
-              
-		# Verlassen des Loops nach dem ersten Treffer
-		break
+    # Erstellen der Networker Direktive
+    if args.networker:
+      if not os.path.exists(os.path.join(tilesfolder[:tilesfolder.rindex('tiles')], 'tiles', '.nsr')):
+        with open(os.path.join(tilesfolder[:tilesfolder.rindex('tiles')], 'tiles', '.nsr'), 'w') as networkerfile:
+          networkerfile.write('+skip: *')
+          logger.info('Networker Direktive erstellt: ' + os.path.join(tilesfolder[:tilesfolder.rindex('tiles')], 'tiles', '.nsr'))
+          
+    # Rekursives Durchsuchen der Ordner verhindern 
+    break
 
 ###############################################################################
 
